@@ -1,6 +1,168 @@
+<template>
+  <div class="app">
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <div v-for="tab in tabs" :key="tab.id" 
+           class="tab" 
+           :class="{ active: tab.id === activeTabId }"
+           @click="switchTab(tab.id)">
+        <span class="tab-icon">{{ tab.icon }}</span>
+        <span class="tab-title">{{ tab.title }}</span>
+        <button v-if="tab.closable" 
+                class="close-btn" 
+                @click.stop="closeTab(tab.id)">×</button>
+      </div>
+      <button class="add-tab-btn" @click="showNewTabDialog = true">+</button>
+    </div>
+
+    <!-- Error message -->
+    <div v-if="errorMessage" class="error-message">
+      {{ errorMessage }}
+    </div>
+
+    <!-- Tab content -->
+    <div class="tab-content">
+      <!-- Manager Tab -->
+      <div v-if="activeTab?.component === 'manager'" class="manager-view">
+        <div class="section">
+          <h2>📋 最近のウィンドウ</h2>
+          <div v-if="recentWindows.length === 0" class="empty-state">
+            まだウィンドウが開かれていません
+          </div>
+          <div v-for="window in recentWindows" :key="window.id" class="window-item">
+            <div class="window-info">
+              <div class="window-title">{{ window.title }}</div>
+              <div class="window-url">{{ window.url }}</div>
+              <div class="window-time">{{ formatTime(window.lastAccessed) }}</div>
+            </div>
+            <div class="window-actions">
+              <button @click="reopenWindow(window)" class="action-btn">再開</button>
+              <button @click="removeFromRecent(window.id)" class="remove-btn">削除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>⭐ お気に入り</h2>
+          <div class="add-favorite">
+            <input v-model="newFavoriteUrl" 
+                   placeholder="お気に入りに追加するURLを入力" 
+                   @keyup.enter="addFavorite"
+                   class="url-input" />
+            <button @click="addFavorite" class="add-btn">追加</button>
+          </div>
+          <div v-if="favorites.length === 0" class="empty-state">
+            お気に入りが登録されていません
+          </div>
+          <div v-for="favorite in favorites" :key="favorite.id" class="favorite-item">
+            <div class="favorite-info">
+              <div class="favorite-title">{{ favorite.title }}</div>
+              <div class="favorite-url">{{ favorite.url }}</div>
+            </div>
+            <div class="favorite-actions">
+              <button @click="openFavorite(favorite)" class="action-btn">開く</button>
+              <button @click="removeFavorite(favorite.id)" class="remove-btn">削除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>🚀 クイックアクション</h2>
+          <div class="quick-actions">
+            <button @click="openScrapboxHome" class="action-card">
+              <div class="action-icon">📦</div>
+              <div class="action-text">Scrapbox ホーム</div>
+            </button>
+            <button @click="openCustomProject" class="action-card">
+              <div class="action-icon">📝</div>
+              <div class="action-text">カスタムプロジェクト</div>
+            </button>
+            <button @click="refreshData" class="action-card">
+              <div class="action-icon">🔄</div>
+              <div class="action-text">データ更新</div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Project List Tab -->
+      <div v-if="activeTab?.component === 'project-list'" class="project-view">
+        <div class="project-header">
+          <h2>📄 プロジェクト一覧</h2>
+          <div class="project-controls">
+            <select v-model="selectedProject" class="project-select">
+              <option value="help-jp">help-jp</option>
+              <option value="programming">programming</option>
+              <option value="notes">notes</option>
+            </select>
+            <button @click="refreshProjectPages" class="refresh-btn">🔄 更新</button>
+          </div>
+        </div>
+
+        <div class="page-list">
+          <div v-for="page in projectPages" :key="page.id" 
+               class="page-item"
+               @click="openProjectPage(page)">
+            <div class="page-title">{{ page.title }}</div>
+            <div class="page-description">{{ page.descriptions.join(', ') }}</div>
+            <div class="page-time">{{ formatDate(page.updated) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WebView Tab -->
+      <div v-if="activeTab?.component === 'webview'" class="webview-container">
+        <div class="webview-header">
+          <input v-model="urlInput" 
+                 @keyup.enter="navigateToUrl" 
+                 class="url-input"
+                 :placeholder="activeTab?.url || 'URLを入力してください'" />
+          <button @click="navigateToUrl" class="navigate-btn">移動</button>
+        </div>
+        
+        <iframe v-if="activeTab?.url" 
+                :src="activeTab.url" 
+                class="webview-iframe"
+                @error="handleIframeError">
+        </iframe>
+        
+        <div v-if="activeTab?.isLoading" class="loading-indicator">
+          読み込み中...
+        </div>
+      </div>
+    </div>
+
+    <!-- New Tab Dialog -->
+    <div v-if="showNewTabDialog" class="modal-overlay" @click="showNewTabDialog = false">
+      <div class="modal" @click.stop>
+        <h3>新しいタブ</h3>
+        <input v-model="newTabUrl" 
+               placeholder="URLを入力してください" 
+               @keyup.enter="createNewTabFromDialog"
+               class="url-input" />
+        <div class="modal-actions">
+          <button @click="createNewTabFromDialog" class="action-btn">作成</button>
+          <button @click="showNewTabDialog = false" class="cancel-btn">キャンセル</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+
+interface Tab {
+  id: string;
+  title: string;
+  component: 'manager' | 'project-list' | 'webview';
+  icon: string;
+  url?: string;
+  isLoading?: boolean;
+  favicon?: string;
+  closable?: boolean;
+}
 
 interface RecentWindow {
   id: string;
@@ -15,27 +177,201 @@ interface Favorite {
   url: string;
 }
 
+interface ProjectPage {
+  id: string;
+  title: string;
+  updated: number;
+  descriptions: string[];
+}
+
+// Tab management
+const tabs = ref<Tab[]>([
+  {
+    id: 'manager',
+    title: '管理',
+    component: 'manager',
+    icon: '📋',
+    closable: false
+  },
+  {
+    id: 'project-list',
+    title: 'プロジェクト一覧',
+    component: 'project-list',
+    icon: '📄',
+    closable: false
+  }
+]);
+
+const activeTabId = ref<string>('manager');
+const errorMessage = ref("");
+
+// UI state
+const showNewTabDialog = ref(false);
+const newTabUrl = ref("");
+const urlInput = ref("");
+
+// Manager data
 const recentWindows = ref<RecentWindow[]>([]);
 const favorites = ref<Favorite[]>([]);
 const newFavoriteUrl = ref("");
-const errorMessage = ref("");
-const isLoading = ref(false);
 
-// メイン機能
-const openScrapboxHome = async () => {
+// Project data
+const selectedProject = ref('help-jp');
+const projectPages = ref<ProjectPage[]>([
+  {
+    id: 'page1',
+    title: 'Scrapboxの使い方',
+    updated: Date.now() - 3600000,
+    descriptions: ['ページの作成、編集、リンクの方法']
+  },
+  {
+    id: 'page2',
+    title: 'ショートカットキー',
+    updated: Date.now() - 7200000,
+    descriptions: ['効率的な編集のためのキーボードショートカット']
+  },
+  {
+    id: 'page3',
+    title: 'ページのアイコン',
+    updated: Date.now() - 10800000,
+    descriptions: ['ページにアイコンを設定する方法']
+  }
+]);
+
+let tabCounter = 0;
+
+const activeTab = computed(() => 
+  tabs.value.find(tab => tab.id === activeTabId.value)
+);
+
+// Tab functions
+// Tab functions
+const switchTab = (tabId: string) => {
+  activeTabId.value = tabId;
+  
+  // Update URL input for webview tabs
+  const tab = tabs.value.find(t => t.id === tabId);
+  if (tab?.component === 'webview' && tab.url) {
+    urlInput.value = tab.url;
+  } else {
+    urlInput.value = "";
+  }
+};
+
+const createWebViewTab = async (url: string, title?: string) => {
   try {
-    isLoading.value = true;
-    const windowId = `scrapbox-home-${Date.now()}`;
-    await invoke('create_webview_window', { 
-      url: "https://scrapbox.io",
-      label: windowId
+    tabCounter++;
+    const tabId = `webview-${tabCounter}`;
+    const tabTitle = title || new URL(url).hostname;
+    
+    const newTab: Tab = {
+      id: tabId,
+      title: tabTitle,
+      component: 'webview',
+      icon: '🌐',
+      url,
+      isLoading: true,
+      closable: true
+    };
+    
+    tabs.value.push(newTab);
+    activeTabId.value = tabId;
+    urlInput.value = url;
+    
+    // Create the webview content
+    await invoke('create_tab_content', { 
+      tabId,
+      url
     });
     
-    // 履歴に追加
+    // Set a timeout to stop loading animation
+    setTimeout(() => {
+      newTab.isLoading = false;
+    }, 2000);
+    
+    console.log(`Created WebView tab: ${tabTitle}`);
+    errorMessage.value = "";
+  } catch (error) {
+    console.error('Failed to create WebView tab:', error);
+    errorMessage.value = `タブの作成に失敗しました: ${error}`;
+  }
+};
+
+const createNewTabFromDialog = () => {
+  if (newTabUrl.value.trim()) {
+    createWebViewTab(newTabUrl.value.trim());
+    showNewTabDialog.value = false;
+    newTabUrl.value = "";
+  }
+};
+
+const navigateToUrl = () => {
+  if (activeTab.value?.component === 'webview' && urlInput.value.trim()) {
+    // Update current tab URL
+    const tab = activeTab.value;
+    tab.url = urlInput.value.trim();
+    tab.isLoading = true;
+    
+    // Navigate in current tab
+    invoke('create_tab_content', { 
+      tabId: tab.id,
+      url: tab.url
+    }).then(() => {
+      setTimeout(() => {
+        if (tab) tab.isLoading = false;
+      }, 2000);
+    }).catch((error) => {
+      console.error('Navigation failed:', error);
+      errorMessage.value = `ナビゲーションに失敗しました: ${error}`;
+      if (tab) tab.isLoading = false;
+    });
+  } else if (urlInput.value.trim()) {
+    // Create new tab
+    createWebViewTab(urlInput.value.trim());
+  }
+};
+
+const closeTab = (tabId: string) => {
+  const tabIndex = tabs.value.findIndex(tab => tab.id === tabId);
+  if (tabIndex > -1) {
+    const tab = tabs.value[tabIndex];
+    if (!tab.closable) return; // Don't close non-closable tabs
+    
+    tabs.value.splice(tabIndex, 1);
+    
+    // Switch to previous tab or first tab
+    if (activeTabId.value === tabId) {
+      const newActiveTab = tabs.value[Math.max(0, tabIndex - 1)];
+      if (newActiveTab) {
+        activeTabId.value = newActiveTab.id;
+      } else if (tabs.value.length > 0) {
+        activeTabId.value = tabs.value[0].id;
+      }
+    }
+  }
+};
+
+const handleIframeError = () => {
+  if (activeTab.value?.url?.includes('scrapbox.io')) {
+    // Open in WebView window instead
+    const projectName = activeTab.value.url.split('/').pop() || 'help-jp';
+    openScrapboxProject(projectName);
+  }
+};
+
+// Scrapbox functions
+const openScrapboxHome = async () => {
+  const scrapboxUrl = "https://scrapbox.io";
+  try {
+    await invoke('create_webview_window', { 
+      url: scrapboxUrl,
+      label: `scrapbox-${Date.now()}`
+    });
+    
     addToRecent({
-      id: windowId,
+      id: `scrapbox-home-${Date.now()}`,
       title: "Scrapbox Home",
-      url: "https://scrapbox.io",
+      url: scrapboxUrl,
       lastAccessed: new Date()
     });
     
@@ -43,22 +379,19 @@ const openScrapboxHome = async () => {
   } catch (error) {
     console.error('Failed to open Scrapbox:', error);
     errorMessage.value = `Scrapboxの起動に失敗しました: ${error}`;
-  } finally {
-    isLoading.value = false;
   }
 };
 
 const openScrapboxProject = async (projectName: string) => {
   try {
     const url = `https://scrapbox.io/${projectName}`;
-    const windowId = `scrapbox-${projectName}-${Date.now()}`;
     await invoke('create_webview_window', { 
       url,
-      label: windowId
+      label: `scrapbox-${projectName}-${Date.now()}`
     });
     
     addToRecent({
-      id: windowId,
+      id: `scrapbox-${projectName}-${Date.now()}`,
       title: `Scrapbox - ${projectName}`,
       url,
       lastAccessed: new Date()
@@ -78,13 +411,65 @@ const openCustomProject = async () => {
   }
 };
 
-// 履歴管理
+// Project page functions
+const openProjectPage = async (page: ProjectPage) => {
+  try {
+    const url = `https://scrapbox.io/${selectedProject.value}/${encodeURIComponent(page.title)}`;
+    
+    // Create WebView tab instead of separate window
+    await createWebViewTab(url, `${page.title} - ${selectedProject.value}`);
+    
+    addToRecent({
+      id: `webview-${tabCounter}`,
+      title: `${page.title} - ${selectedProject.value}`,
+      url,
+      lastAccessed: new Date()
+    });
+    
+    errorMessage.value = "";
+  } catch (error) {
+    console.error('Failed to open project page:', error);
+    errorMessage.value = `ページの起動に失敗しました: ${error}`;
+  }
+};
+
+const formatDate = (timestamp: number) => {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diff = now.getTime() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  
+  if (minutes < 1) return "たった今";
+  if (minutes < 60) return `${minutes}分前`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}時間前`;
+  return date.toLocaleDateString();
+};
+
+const refreshProjectPages = () => {
+  // Mock data refresh (in real app, this would be an API call)
+  const newPages = [
+    {
+      id: 'page' + Date.now(),
+      title: '新しいページ',
+      updated: Date.now(),
+      descriptions: ['リフレッシュされたページです']
+    },
+    ...projectPages.value
+  ];
+  projectPages.value = newPages.slice(0, 10); // Keep only first 10
+  errorMessage.value = "ページリストを更新しました";
+  setTimeout(() => {
+    errorMessage.value = "";
+  }, 2000);
+};
+
+// Recent windows functions
 const addToRecent = (window: RecentWindow) => {
-  // 重複を削除
+  // Remove duplicates
   recentWindows.value = recentWindows.value.filter(w => w.id !== window.id);
-  // 先頭に追加
+  // Add to beginning
   recentWindows.value.unshift(window);
-  // 最大10件まで保持
+  // Keep only 10 items
   if (recentWindows.value.length > 10) {
     recentWindows.value = recentWindows.value.slice(0, 10);
   }
@@ -99,7 +484,7 @@ const reopenWindow = async (window: RecentWindow) => {
       label: windowId
     });
     
-    // 履歴を更新
+    // Update recent history
     addToRecent({
       ...window,
       id: windowId,
@@ -118,7 +503,7 @@ const removeFromRecent = (windowId: string) => {
   saveToStorage();
 };
 
-// お気に入り管理
+// Favorites functions
 const addFavorite = () => {
   if (!newFavoriteUrl.value.trim()) return;
   
@@ -166,7 +551,7 @@ const removeFavorite = (favoriteId: string) => {
   saveToStorage();
 };
 
-// ユーティリティ
+// Utility functions
 const formatTime = (date: Date) => {
   const now = new Date();
   const diff = now.getTime() - date.getTime();
@@ -179,14 +564,18 @@ const formatTime = (date: Date) => {
 };
 
 const refreshData = () => {
-  loadFromStorage();
-  errorMessage.value = "データを更新しました";
-  setTimeout(() => {
-    errorMessage.value = "";
-  }, 2000);
+  try {
+    loadFromStorage();
+    errorMessage.value = "データを更新しました";
+    setTimeout(() => {
+      errorMessage.value = "";
+    }, 2000);
+  } catch (error) {
+    errorMessage.value = "データの更新に失敗しました";
+  }
 };
 
-// データ永続化
+// Data persistence
 const saveToStorage = () => {
   localStorage.setItem('sbe-recent', JSON.stringify(recentWindows.value.map(w => ({
     ...w,
@@ -215,10 +604,11 @@ const loadFromStorage = () => {
   }
 };
 
+// Initialize
 onMounted(() => {
   loadFromStorage();
   
-  // サンプルのお気に入りを追加（初回のみ）
+  // Add sample favorites if none exist
   if (favorites.value.length === 0) {
     favorites.value = [
       {
@@ -230,562 +620,420 @@ onMounted(() => {
     saveToStorage();
   }
 });
+
+// Functions are used in template - no need to export in script setup
 </script>
 
-<template>
-  <div class="app-container">
-    <header class="app-header">
-      <div class="app-title">
-        <h1>🗂️ SBE - Scrapbox Desktop Manager</h1>
-      </div>
-      <div class="quick-actions">
-        <button @click="openScrapboxHome" class="action-btn primary" :disabled="isLoading">
-          📝 Scrapboxを開く
-        </button>
-        <button @click="refreshData" class="action-btn" :disabled="isLoading">
-          ⟳ 更新
-        </button>
-      </div>
-    </header>
-
-    <!-- Quick Launch Section -->
-    <div class="quick-launch">
-      <h2>🚀 クイックアクセス</h2>
-      <div class="launch-grid">
-        <button @click="openScrapboxProject('help-jp')" class="launch-item">
-          <div class="launch-icon">📖</div>
-          <div class="launch-title">Scrapbox ヘルプ</div>
-          <div class="launch-url">help-jp</div>
-        </button>
-        <button @click="openCustomProject" class="launch-item add-project">
-          <div class="launch-icon">➕</div>
-          <div class="launch-title">プロジェクトを追加</div>
-        </button>
-      </div>
-    </div>
-    
-    <main class="content-container">
-      <!-- Recent Windows Section -->
-      <div class="recent-section">
-        <h2>📋 最近開いたウィンドウ</h2>
-        <div v-if="recentWindows.length > 0" class="recent-list">
-          <div v-for="window in recentWindows" :key="window.id" class="recent-item" @click="reopenWindow(window)">
-            <div class="recent-info">
-              <div class="recent-title">{{ window.title }}</div>
-              <div class="recent-url">{{ window.url }}</div>
-              <div class="recent-time">{{ formatTime(window.lastAccessed) }}</div>
-            </div>
-            <div class="recent-actions" @click.stop>
-              <button @click="removeFromRecent(window.id)" class="recent-btn danger" title="削除">
-                🗑️
-              </button>
-            </div>
-          </div>
-        </div>
-        <div v-else class="no-recent">
-          <p>まだウィンドウを開いていません</p>
-        </div>
-      </div>
-
-      <!-- Favorites Section -->
-      <div class="favorites-section">
-        <h2>⭐ お気に入り</h2>
-        <div class="favorites-list">
-          <div v-for="favorite in favorites" :key="favorite.id" class="favorite-item" @click="openFavorite(favorite)">
-            <div class="favorite-info">
-              <div class="favorite-title">{{ favorite.title }}</div>
-              <div class="favorite-url">{{ favorite.url }}</div>
-            </div>
-            <div class="favorite-actions" @click.stop>
-              <button @click="removeFavorite(favorite.id)" class="favorite-btn danger" title="削除">
-                🗑️
-              </button>
-            </div>
-          </div>
-          <div class="add-favorite">
-            <input 
-              v-model="newFavoriteUrl" 
-              placeholder="ScrapboxプロジェクトURLを入力" 
-              class="favorite-input"
-              @keyup.enter="addFavorite"
-            >
-            <button @click="addFavorite" class="favorite-btn primary">追加</button>
-          </div>
-        </div>
-      </div>
-      
-      <div v-if="errorMessage" class="error-message">
-        {{ errorMessage }}
-      </div>
-      
-      <div class="instructions">
-        <h3>使い方:</h3>
-        <ul>
-          <li>📝 ボタンでScrapboxメインページを専用ウィンドウで開く</li>
-          <li>クイックアクセスからよく使うプロジェクトを素早く開く</li>
-          <li>「最近開いたウィンドウ」から以前開いたページを再度開く</li>
-          <li>「お気に入り」にプロジェクトURLを登録してアクセスを簡単に</li>
-          <li>各項目をクリックして開く、🗑️ボタンで削除</li>
-        </ul>
-        <p><strong>注意:</strong> Scrapboxは専用のWebViewウィンドウで表示されます。</p>
-      </div>
-    </main>
-  </div>
-</template>
-
 <style scoped>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-.app-container {
-  width: 100%;
-  height: 100vh;
+.app {
   display: flex;
   flex-direction: column;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: #f8f9fa;
+  height: 100vh;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* Header Styles */
-.app-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.tab-bar {
+  display: flex;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  padding: 0;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-right: 1px solid #ddd;
+  cursor: pointer;
+  min-width: 120px;
+  background: white;
+  transition: background-color 0.2s;
+}
+
+.tab:hover {
+  background: #f0f0f0;
+}
+
+.tab.active {
+  background: #007acc;
   color: white;
-  padding: 16px 24px;
+}
+
+.tab-icon {
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.tab-title {
+  flex-grow: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.close-btn {
+  margin-left: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.add-tab-btn {
+  background: #f5f5f5;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+}
+
+.add-tab-btn:hover {
+  background: #e0e0e0;
+}
+
+.error-message {
+  background: #ffebee;
+  color: #c62828;
+  padding: 8px 16px;
+  border-bottom: 1px solid #ffcdd2;
+  font-size: 14px;
+}
+
+.tab-content {
+  flex: 1;
+  overflow: auto;
+}
+
+/* Manager View */
+.manager-view {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.section {
+  margin-bottom: 32px;
+}
+
+.section h2 {
+  margin: 0 0 16px 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.empty-state {
+  text-align: center;
+  color: #888;
+  padding: 32px;
+  font-style: italic;
+}
+
+.window-item, .favorite-item {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: white;
 }
 
-.app-title h1 {
-  font-size: 20px;
-  font-weight: 700;
+.window-info, .favorite-info {
+  flex-grow: 1;
+}
+
+.window-title, .favorite-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.window-url, .favorite-url {
+  color: #666;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.window-time {
+  color: #999;
+  font-size: 12px;
+}
+
+.window-actions, .favorite-actions {
   display: flex;
-  align-items: center;
   gap: 8px;
-}
-
-.quick-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
 }
 
 .action-btn {
-  background: #007bff;
+  background: #007acc;
   color: white;
   border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 6px 12px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
+  font-size: 12px;
 }
 
 .action-btn:hover {
-  background: #0056b3;
-  transform: translateY(-1px);
+  background: #005999;
 }
 
-.action-btn.primary {
-  background: #28a745;
-}
-
-.action-btn.primary:hover {
-  background: #218838;
-}
-
-.action-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Quick Launch Section */
-.quick-launch {
-  background: white;
-  padding: 20px 24px;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.quick-launch h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #495057;
-}
-
-.launch-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-}
-
-.launch-item {
-  background: #f8f9fa;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  padding: 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.launch-item:hover {
-  border-color: #007bff;
-  background: #e7f3ff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,123,255,0.15);
-}
-
-.launch-item.add-project {
-  border-color: #28a745;
-  color: #28a745;
-}
-
-.launch-item.add-project:hover {
-  border-color: #28a745;
-  background: #e8f5e8;
-}
-
-.launch-icon {
-  font-size: 24px;
-}
-
-.launch-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: #495057;
-}
-
-.launch-url {
-  font-size: 12px;
-  color: #6c757d;
-}
-
-/* Content Container */
-.content-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-  gap: 24px;
-  overflow-y: auto;
-}
-
-/* Recent Windows Section */
-.recent-section {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.recent-section h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #495057;
-}
-
-.recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.recent-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.recent-item:hover {
-  border-color: #007bff;
-  background: #f8f9ff;
-}
-
-.recent-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.recent-title {
-  font-weight: 500;
-  font-size: 14px;
-  color: #212529;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.recent-url {
-  font-size: 12px;
-  color: #6c757d;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.recent-time {
-  font-size: 11px;
-  color: #6c757d;
-}
-
-.recent-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.recent-btn {
-  background: none;
-  border: none;
-  color: #6c757d;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  font-size: 16px;
-  transition: all 0.2s;
-}
-
-.recent-btn:hover {
-  background: #e9ecef;
-  color: #495057;
-}
-
-.recent-btn.danger:hover {
-  background: #dc3545;
+.remove-btn {
+  background: #e53e3e;
   color: white;
-}
-
-.no-recent {
-  text-align: center;
-  color: #6c757d;
-  font-size: 14px;
-  padding: 20px;
-}
-
-/* Favorites Section */
-.favorites-section {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.favorites-section h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #495057;
-}
-
-.favorites-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.favorite-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid #e9ecef;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.favorite-item:hover {
-  border-color: #28a745;
-  background: #f8fff8;
-}
-
-.favorite-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.favorite-title {
-  font-weight: 500;
-  font-size: 14px;
-  color: #212529;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.favorite-url {
-  font-size: 12px;
-  color: #6c757d;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.favorite-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.favorite-btn {
-  background: none;
   border: none;
-  color: #6c757d;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  font-size: 16px;
-  transition: all 0.2s;
-}
-
-.favorite-btn:hover {
-  background: #e9ecef;
-  color: #495057;
-}
-
-.favorite-btn.primary {
-  background: #007bff;
-  color: white;
   padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
   font-size: 12px;
 }
 
-.favorite-btn.primary:hover {
-  background: #0056b3;
-}
-
-.favorite-btn.danger:hover {
-  background: #dc3545;
-  color: white;
+.remove-btn:hover {
+  background: #c53030;
 }
 
 .add-favorite {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #e9ecef;
-}
-
-.favorite-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #e9ecef;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.favorite-input:focus {
-  outline: none;
-  border-color: #007bff;
-}
-
-/* Error Message */
-.error-message {
-  background: #f8d7da;
-  color: #721c24;
-  padding: 12px 20px;
-  border-left: 4px solid #dc3545;
-  border-radius: 6px;
-  font-size: 14px;
   margin-bottom: 16px;
 }
 
-/* Instructions */
-.instructions {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  margin-top: auto;
-}
-
-.instructions h3 {
-  color: #333;
-  margin-bottom: 12px;
-  font-size: 16px;
-}
-
-.instructions ul {
-  list-style-type: disc;
-  padding-left: 20px;
-}
-
-.instructions li {
-  margin-bottom: 6px;
-  line-height: 1.4;
+.url-input {
+  flex-grow: 1;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
   font-size: 14px;
 }
 
-.instructions p {
-  margin-top: 16px;
-  padding: 12px;
-  background-color: #fff3cd;
-  border: 1px solid #ffeaa7;
-  border-radius: 6px;
-  color: #856404;
-  font-size: 13px;
+.add-btn {
+  background: #38a169;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .app-container {
-    background: #1a1a1a;
-    color: #f6f6f6;
-  }
+.add-btn:hover {
+  background: #2f855a;
+}
 
-  .quick-launch,
-  .recent-section,
-  .favorites-section,
-  .instructions {
-    background: #2d2d2d;
-    color: #f6f6f6;
-  }
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
 
-  .recent-item,
-  .favorite-item {
-    border-color: #444;
-    background: #2d2d2d;
-  }
+.action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
 
-  .recent-item:hover {
-    background: #3d3d3d;
-    border-color: #007bff;
-  }
+.action-card:hover {
+  background: #f8f9fa;
+  border-color: #007acc;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
 
-  .favorite-item:hover {
-    background: #3d3d3d;
-    border-color: #28a745;
-  }
+.action-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
 
-  .favorite-input {
-    background: #2d2d2d;
-    border-color: #444;
-    color: #f6f6f6;
-  }
+.action-text {
+  font-weight: 500;
+  color: #333;
+}
 
-  .launch-item {
-    background: #2d2d2d;
-    border-color: #444;
-    color: #f6f6f6;
-  }
+/* Project View */
+.project-view {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
 
-  .launch-item:hover {
-    background: #3d3d3d;
-  }
+.project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.project-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.project-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.project-select {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.refresh-btn {
+  background: #007acc;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.refresh-btn:hover {
+  background: #005999;
+}
+
+.page-list {
+  display: grid;
+  gap: 12px;
+}
+
+.page-item {
+  padding: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-item:hover {
+  background: #f8f9fa;
+  border-color: #007acc;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.page-title {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.page-description {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.page-time {
+  color: #999;
+  font-size: 12px;
+}
+
+/* WebView */
+.webview-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.webview-header {
+  display: flex;
+  padding: 8px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  gap: 8px;
+}
+
+.navigate-btn {
+  background: #007acc;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.navigate-btn:hover {
+  background: #005999;
+}
+
+.webview-iframe {
+  flex: 1;
+  border: none;
+  width: 100%;
+}
+
+.loading-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 64px;
+  color: #666;
+  font-style: italic;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90vw;
+}
+
+.modal h3 {
+  margin: 0 0 16px 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cancel-btn {
+  background: #666;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-btn:hover {
+  background: #555;
 }
 </style>
