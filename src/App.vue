@@ -1,136 +1,284 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
-const greetMsg = ref("");
-const name = ref("");
+const currentUrl = ref("https://scrapbox.io");
+const urlInput = ref("https://scrapbox.io");
+const isLoading = ref(false);
+const errorMessage = ref("");
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
-}
+const navigateToUrl = async () => {
+  try {
+    isLoading.value = true;
+    errorMessage.value = "";
+    currentUrl.value = urlInput.value;
+    
+    // Use Tauri command to create new webview window
+    await invoke('create_webview_window', { 
+      url: currentUrl.value,
+      label: `scrapbox-${Date.now()}` // unique label for each window
+    });
+    
+  } catch (error) {
+    console.error('Navigation error:', error);
+    errorMessage.value = `Navigation failed: ${error}`;
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const goHome = () => {
+  urlInput.value = "https://scrapbox.io";
+  navigateToUrl();
+};
+
+const openInBrowser = async () => {
+  try {
+    await invoke('open_url', { url: currentUrl.value });
+  } catch (error) {
+    console.error('Failed to open in browser:', error);
+    errorMessage.value = `Failed to open in browser: ${error}`;
+  }
+};
+
+const refresh = () => {
+  navigateToUrl();
+};
+
+onMounted(() => {
+  // Don't auto-navigate on mount, let user choose
+});
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
-
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
-    </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
-
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="nav-controls">
+        <button @click="refresh" class="nav-btn" title="更新" :disabled="isLoading">⟳</button>
+        <button @click="goHome" class="nav-btn" title="ホーム" :disabled="isLoading">🏠</button>
+        <button @click="openInBrowser" class="nav-btn" title="ブラウザで開く">🔗</button>
+      </div>
+      <div class="url-bar">
+        <input 
+          v-model="urlInput" 
+          @keyup.enter="navigateToUrl"
+          class="url-input"
+          placeholder="URLを入力してください"
+          :disabled="isLoading"
+        />
+        <button @click="navigateToUrl" class="go-btn" :disabled="isLoading">
+          {{ isLoading ? '読み込み中...' : '移動' }}
+        </button>
+      </div>
+    </header>
+    
+    <main class="content-container">
+      <div class="status-section">
+        <h2>SBE - Scrapbox Desktop Client</h2>
+        <div class="current-url">
+          現在のURL: <code>{{ currentUrl }}</code>
+        </div>
+        
+        <div v-if="errorMessage" class="error-message">
+          {{ errorMessage }}
+        </div>
+        
+        <div v-if="isLoading" class="loading-message">
+          新しいウィンドウを開いています...
+        </div>
+        
+        <div class="instructions">
+          <h3>使い方:</h3>
+          <ul>
+            <li>URLを入力して「移動」ボタンを押すと、新しいWebViewウィンドウでサイトが開きます</li>
+            <li>🏠 ボタンでScrapboxホームに戻ります</li>
+            <li>⟳ ボタンで現在のURLを再読み込みします</li>
+            <li>🔗 ボタンでデフォルトブラウザでURLを開きます</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+  </div>
 </template>
 
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
 <style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.container {
-  margin: 0;
-  padding-top: 10vh;
+body, html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-container {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  height: 100vh;
+  width: 100vw;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
+.app-header {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+.nav-controls {
+  display: flex;
+  gap: 4px;
 }
 
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
+.nav-btn {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 6px 10px;
   cursor: pointer;
+  font-size: 14px;
+  min-width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+.nav-btn:hover {
+  background-color: #e9e9e9;
+  border-color: #999;
 }
 
-input,
-button {
+.nav-btn:active {
+  background-color: #ddd;
+}
+
+.url-bar {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.url-input {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  height: 32px;
   outline: none;
+}
+
+.url-input:focus {
+  border-color: #007acc;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.go-btn {
+  background: #007acc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  height: 32px;
+  transition: background-color 0.2s;
+}
+
+.go-btn:hover {
+  background-color: #005a9e;
+}
+
+.content-container {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  background-color: #fafafa;
+}
+
+.status-section {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.status-section h2 {
+  color: #333;
+  margin-bottom: 20px;
+  font-size: 28px;
+}
+
+.current-url {
+  margin: 16px 0;
+  padding: 12px;
+  background-color: #f0f0f0;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.current-url code {
+  color: #007acc;
+  font-weight: 500;
+}
+
+.error-message {
+  margin: 16px 0;
+  padding: 12px;
+  background-color: #ffeaea;
+  border: 1px solid #ffcccc;
+  border-radius: 6px;
+  color: #d8000c;
+}
+
+.loading-message {
+  margin: 16px 0;
+  padding: 12px;
+  background-color: #e6f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 6px;
+  color: #0066cc;
+}
+
+.instructions {
+  margin-top: 24px;
+  padding: 20px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.instructions h3 {
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.instructions ul {
+  list-style-type: disc;
+  padding-left: 20px;
+}
+
+.instructions li {
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.nav-btn:disabled,
+.go-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.url-input:disabled {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
 }
 
 #greet-input {
