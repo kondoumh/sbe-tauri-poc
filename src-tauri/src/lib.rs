@@ -1,8 +1,10 @@
 use tauri_plugin_opener::OpenerExt;
-use tauri::{WebviewUrl, WebviewWindowBuilder, Emitter};
+use tauri::{WebviewUrl, WebviewWindowBuilder, Emitter, Manager};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
+use url::Url;
+use tauri::webview::Cookie;
 
 // Tab management state
 struct TabState {
@@ -94,30 +96,79 @@ async fn update_recent_title(app: tauri::AppHandle, window_label: String, url: S
     Ok(())
 }
 
-// Command to fetch Scrapbox pages
+// Helper function to build cookie header from webview cookies
+fn build_cookie_header(cookies: Vec<Cookie<'static>>) -> String {
+    cookies
+        .iter()
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+// Command to fetch Scrapbox pages with authentication (supports both public and private projects)
 #[tauri::command]
-async fn fetch_scrapbox_pages(project: String, skip: Option<i32>, limit: Option<i32>, sort: Option<String>) -> Result<ScrapboxPagesResponse, String> {
+async fn fetch_scrapbox_pages(
+    app: tauri::AppHandle,
+    project: String, 
+    skip: Option<i32>, 
+    limit: Option<i32>, 
+    sort: Option<String>
+) -> Result<ScrapboxPagesResponse, String> {
     let skip = skip.unwrap_or(0);
     let limit = limit.unwrap_or(20);
     let sort = sort.unwrap_or_else(|| "updated".to_string());
     
-    let url = format!(
+    let api_url = format!(
         "https://scrapbox.io/api/pages/{}?skip={}&limit={}&sort={}",
         project, skip, limit, sort
     );
     
-    println!("🔍 Fetching Scrapbox pages: {}", url);
+    println!("🔍 Fetching private Scrapbox pages: {}", api_url);
     
-    let response = reqwest::get(&url)
+    // Get cookies from any existing WebView that has accessed Scrapbox
+    let scrapbox_url = Url::parse("https://scrapbox.io").map_err(|e| format!("Invalid URL: {}", e))?;
+    
+    // Try to get cookies from main window's webview first
+    let cookies = if let Some(main_window) = app.get_webview_window("main") {
+        main_window.cookies_for_url(scrapbox_url.clone())
+            .map_err(|e| format!("Failed to get cookies: {}", e))?
+    } else {
+        // If no main window, try to find any webview window
+        let webviews = app.webview_windows();
+        if let Some((_, webview)) = webviews.iter().next() {
+            webview.cookies_for_url(scrapbox_url.clone())
+                .map_err(|e| format!("Failed to get cookies: {}", e))?
+        } else {
+            println!("⚠️ No webview windows found, proceeding without authentication");
+            Vec::new()
+        }
+    };
+    
+    let client = reqwest::Client::new();
+    let mut request_builder = client.get(&api_url);
+    
+    // Add cookies if available
+    if !cookies.is_empty() {
+        let cookie_header = build_cookie_header(cookies);
+        println!("🍪 Using cookies for authentication: {} cookies", cookie_header.matches(';').count() + 1);
+        request_builder = request_builder.header("Cookie", cookie_header);
+    }
+    
+    let response = request_builder
+        .send()
         .await
         .map_err(|e| format!("Failed to fetch pages: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("API request failed with status: {} - This might be a private project requiring authentication", response.status()));
+    }
     
     let pages_data: ScrapboxPagesResponse = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
     
-    println!("✅ Fetched {} pages from {}", pages_data.pages.len(), project);
+    println!("✅ Fetched {} pages from private project {}", pages_data.pages.len(), project);
     
     Ok(pages_data)
 }
