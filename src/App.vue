@@ -110,6 +110,62 @@
         </div>
       </div>
 
+      <!-- Scrapbox Pages Tab -->
+      <div v-if="activeTab?.component === 'scrapbox-pages'" class="scrapbox-pages-view">
+        <div class="scrapbox-header">
+          <h2>📝 Scrapboxページ一覧</h2>
+          <div class="scrapbox-controls">
+            <input v-model="scrapboxProject" 
+                   @keyup.enter="changeScrapboxProject"
+                   class="project-input"
+                   placeholder="プロジェクト名" />
+            <select v-model="scrapboxSort" @change="fetchScrapboxPages" class="sort-select">
+              <option value="updated">更新日時</option>
+              <option value="created">作成日時</option>
+              <option value="views">閲覧数</option>
+              <option value="title">タイトル</option>
+            </select>
+            <button @click="fetchScrapboxPages" class="refresh-btn" :disabled="scrapboxLoading">
+              {{ scrapboxLoading ? '🔄 読み込み中...' : '🔄 更新' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="scrapboxError" class="error-message">
+          {{ scrapboxError }}
+        </div>
+
+        <div class="scrapbox-page-list" v-if="!scrapboxLoading">
+          <div class="page-header">
+            <div class="page-title-header">タイトル</div>
+            <div class="page-views-header">閲覧数</div>
+            <div class="page-links-header">被リンク数</div>
+            <div class="page-updated-header">更新日時</div>
+            <div class="page-user-header">更新者</div>
+          </div>
+          
+          <div v-for="page in scrapboxPages" :key="page.id" 
+               class="scrapbox-page-item"
+               @click="openScrapboxPage(page)">
+            <div class="page-title">{{ page.title }}</div>
+            <div class="page-views">{{ page.views.toLocaleString() }}</div>
+            <div class="page-links">{{ page.linked }}</div>
+            <div class="page-time">{{ formatDate(page.updated * 1000) }}</div>
+            <div class="page-user">
+              <span class="user-name">{{ page.last_update_user?.id || page.user.id || '-' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="scrapboxLoading" class="loading-state">
+          読み込み中...
+        </div>
+
+        <div v-if="!scrapboxLoading && scrapboxPages.length === 0" class="empty-state">
+          ページが見つかりませんでした
+        </div>
+      </div>
+
       <!-- WebView Tab -->
       <div v-if="activeTab?.component === 'webview'" class="webview-container">
         <div class="webview-header">
@@ -150,14 +206,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from "vue";
+import { ref, onMounted, computed, onUnmounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 interface Tab {
   id: string;
   title: string;
-  component: 'manager' | 'project-list' | 'webview';
+  component: 'manager' | 'project-list' | 'webview' | 'scrapbox-pages';
   icon: string;
   url?: string;
   isLoading?: boolean;
@@ -185,6 +241,20 @@ interface ProjectPage {
   descriptions: string[];
 }
 
+interface ScrapboxPage {
+  id: string;
+  title: string;
+  views: number;
+  linked: number;
+  updated: number;
+  user: {
+    id: string;
+  };
+  last_update_user?: {
+    id: string;
+  };
+}
+
 // Tab management
 const tabs = ref<Tab[]>([
   {
@@ -199,6 +269,13 @@ const tabs = ref<Tab[]>([
     title: 'プロジェクト一覧',
     component: 'project-list',
     icon: '📄',
+    closable: false
+  },
+  {
+    id: 'scrapbox-pages',
+    title: 'Scrapboxページ一覧',
+    component: 'scrapbox-pages',
+    icon: '📝',
     closable: false
   }
 ]);
@@ -238,6 +315,15 @@ const projectPages = ref<ProjectPage[]>([
     descriptions: ['ページにアイコンを設定する方法']
   }
 ]);
+
+// Scrapbox pages state
+const scrapboxProject = ref('help-jp');
+const scrapboxPages = ref<ScrapboxPage[]>([]);
+const scrapboxLoading = ref(false);
+const scrapboxError = ref('');
+const scrapboxSkip = ref(0);
+const scrapboxLimit = ref(100);
+const scrapboxSort = ref('updated');
 
 let tabCounter = 0;
 
@@ -446,6 +532,53 @@ const formatDate = (timestamp: number) => {
   return date.toLocaleDateString();
 };
 
+// Scrapbox pages functions
+const fetchScrapboxPages = async () => {
+  scrapboxLoading.value = true;
+  scrapboxError.value = '';
+  
+  try {
+    const result = await invoke('fetch_scrapbox_pages', {
+      project: scrapboxProject.value,
+      skip: scrapboxSkip.value,
+      limit: scrapboxLimit.value,
+      sort: scrapboxSort.value
+    }) as { pages: ScrapboxPage[], count: number, skip: number };
+    
+    scrapboxPages.value = result.pages;
+    console.log(`Fetched ${result.pages.length} pages from ${scrapboxProject.value}`);
+  } catch (error) {
+    console.error('Failed to fetch Scrapbox pages:', error);
+    scrapboxError.value = `ページの取得に失敗しました: ${error}`;
+  } finally {
+    scrapboxLoading.value = false;
+  }
+};
+
+const openScrapboxPage = async (page: ScrapboxPage) => {
+  try {
+    const url = `https://scrapbox.io/${scrapboxProject.value}/${encodeURIComponent(page.title)}`;
+    await createWebViewTab(url, `${page.title} - ${scrapboxProject.value}`);
+    
+    addToRecent({
+      id: `scrapbox-page-${page.id}`,
+      title: `${page.title} - ${scrapboxProject.value}`,
+      url,
+      lastAccessed: new Date()
+    });
+    
+    errorMessage.value = "";
+  } catch (error) {
+    console.error('Failed to open Scrapbox page:', error);
+    errorMessage.value = `ページの起動に失敗しました: ${error}`;
+  }
+};
+
+const changeScrapboxProject = () => {
+  scrapboxSkip.value = 0;
+  fetchScrapboxPages();
+};
+
 const refreshProjectPages = () => {
   // Mock data refresh (in real app, this would be an API call)
   const newPages = [
@@ -651,6 +784,13 @@ onMounted(async () => {
       console.log(`Title updated: ${title} (${url})`);
     }
   });
+});
+
+// Watch for tab changes to auto-load Scrapbox pages
+watch(activeTabId, (newTabId) => {
+  if (newTabId === 'scrapbox-pages' && scrapboxPages.value.length === 0) {
+    fetchScrapboxPages();
+  }
 });
 
 onUnmounted(() => {
@@ -984,6 +1124,126 @@ onUnmounted(() => {
 .page-time {
   color: #999;
   font-size: 12px;
+}
+
+/* Scrapbox Pages View */
+.scrapbox-pages-view {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.scrapbox-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.scrapbox-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.scrapbox-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.project-input {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 150px;
+}
+
+.sort-select {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.scrapbox-page-list {
+  background: white;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.page-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr;
+  gap: 16px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  font-weight: 600;
+  font-size: 14px;
+  color: #666;
+}
+
+.scrapbox-page-item {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scrapbox-page-item:hover {
+  background: #f8f9fa;
+}
+
+.scrapbox-page-item:last-child {
+  border-bottom: none;
+}
+
+.scrapbox-page-item .page-title {
+  font-weight: 500;
+  color: #333;
+  margin: 0;
+}
+
+.page-views {
+  color: #666;
+  text-align: right;
+}
+
+.page-links {
+  color: #666;
+  text-align: right;
+}
+
+.page-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-name {
+  font-size: 12px;
+  color: #999;
+  font-family: monospace;
+}
+
+.loading-state, .empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.error-message {
+  background: #fee;
+  color: #c33;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  border: 1px solid #fcc;
 }
 
 /* WebView */

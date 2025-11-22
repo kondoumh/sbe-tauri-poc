@@ -2,6 +2,7 @@ use tauri_plugin_opener::OpenerExt;
 use tauri::{WebviewUrl, WebviewWindowBuilder, Emitter};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
 
 // Tab management state
 struct TabState {
@@ -93,11 +94,77 @@ async fn update_recent_title(app: tauri::AppHandle, window_label: String, url: S
     Ok(())
 }
 
+// Command to fetch Scrapbox pages
+#[tauri::command]
+async fn fetch_scrapbox_pages(project: String, skip: Option<i32>, limit: Option<i32>, sort: Option<String>) -> Result<ScrapboxPagesResponse, String> {
+    let skip = skip.unwrap_or(0);
+    let limit = limit.unwrap_or(20);
+    let sort = sort.unwrap_or_else(|| "updated".to_string());
+    
+    let url = format!(
+        "https://scrapbox.io/api/pages/{}?skip={}&limit={}&sort={}",
+        project, skip, limit, sort
+    );
+    
+    println!("🔍 Fetching Scrapbox pages: {}", url);
+    
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Failed to fetch pages: {}", e))?;
+    
+    let pages_data: ScrapboxPagesResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    
+    println!("✅ Fetched {} pages from {}", pages_data.pages.len(), project);
+    
+    Ok(pages_data)
+}
+
 #[derive(serde::Serialize, Clone)]
 struct NavigationEvent {
     window_label: String,
     url: String,
     title: String,
+}
+
+// Scrapbox API structures
+#[derive(Serialize, Deserialize, Clone)]
+struct ScrapboxPage {
+    id: String,
+    title: String,
+    image: Option<String>,
+    descriptions: Vec<String>,
+    user: ScrapboxUser,
+    #[serde(rename = "lastUpdateUser")]
+    last_update_user: Option<ScrapboxUser>,
+    pin: i64,
+    views: i32,
+    linked: i32,
+    created: i64,
+    updated: i64,
+    accessed: Option<i64>,
+    #[serde(rename = "linesCount")]
+    lines_count: Option<i32>,
+    #[serde(rename = "charsCount")]
+    chars_count: Option<i32>,
+    helpfeels: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ScrapboxUser {
+    id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ScrapboxPagesResponse {
+    #[serde(rename = "projectName")]
+    project_name: String,
+    skip: i32,
+    limit: i32,
+    count: i32,
+    pages: Vec<ScrapboxPage>,
 }
 
 // Tab management commands
@@ -170,7 +237,8 @@ pub fn run() {
             switch_to_tab,
             navigate_tab,
             track_navigation,
-            update_recent_title
+            update_recent_title,
+            fetch_scrapbox_pages
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
