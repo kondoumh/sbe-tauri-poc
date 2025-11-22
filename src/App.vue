@@ -150,8 +150,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 interface Tab {
   id: string;
@@ -604,8 +605,11 @@ const loadFromStorage = () => {
   }
 };
 
+// Navigation tracking
+let navigationUnlisten: (() => void) | null = null;
+
 // Initialize
-onMounted(() => {
+onMounted(async () => {
   loadFromStorage();
   
   // Add sample favorites if none exist
@@ -618,6 +622,40 @@ onMounted(() => {
       }
     ];
     saveToStorage();
+  }
+
+  // Listen for navigation events from WebView windows
+  navigationUnlisten = await listen('add-to-recent', (event: any) => {
+    const { window_label, url, title } = event.payload;
+    
+    addToRecent({
+      id: `${window_label}-${Date.now()}`,
+      title: title || new URL(url).hostname,
+      url,
+      lastAccessed: new Date()
+    });
+
+    console.log(`Navigation tracked: ${title} (${url})`);
+  });
+
+  // Listen for title updates
+  await listen('update-recent-title', (event: any) => {
+    const { url, title } = event.payload;
+    
+    // Find and update existing recent window with same URL
+    const existingIndex = recentWindows.value.findIndex(w => w.url === url);
+    if (existingIndex >= 0) {
+      recentWindows.value[existingIndex].title = title;
+      recentWindows.value[existingIndex].lastAccessed = new Date();
+      saveToStorage();
+      console.log(`Title updated: ${title} (${url})`);
+    }
+  });
+});
+
+onUnmounted(() => {
+  if (navigationUnlisten) {
+    navigationUnlisten();
   }
 });
 
