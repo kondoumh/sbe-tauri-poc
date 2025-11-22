@@ -85,31 +85,6 @@
         </div>
       </div>
 
-      <!-- Project List Tab -->
-      <div v-if="activeTab?.component === 'project-list'" class="project-view">
-        <div class="project-header">
-          <h2>📄 プロジェクト一覧</h2>
-          <div class="project-controls">
-            <select v-model="selectedProject" class="project-select">
-              <option value="help-jp">help-jp</option>
-              <option value="programming">programming</option>
-              <option value="notes">notes</option>
-            </select>
-            <button @click="refreshProjectPages" class="refresh-btn">🔄 更新</button>
-          </div>
-        </div>
-
-        <div class="page-list">
-          <div v-for="page in projectPages" :key="page.id" 
-               class="page-item"
-               @click="openProjectPage(page)">
-            <div class="page-title">{{ page.title }}</div>
-            <div class="page-description">{{ page.descriptions.join(', ') }}</div>
-            <div class="page-time">{{ formatDate(page.updated) }}</div>
-          </div>
-        </div>
-      </div>
-
       <!-- Scrapbox Pages Tab -->
       <div v-if="activeTab?.component === 'scrapbox-pages'" class="scrapbox-pages-view">
         <div class="scrapbox-header">
@@ -213,7 +188,7 @@ import { listen } from "@tauri-apps/api/event";
 interface Tab {
   id: string;
   title: string;
-  component: 'manager' | 'project-list' | 'webview' | 'scrapbox-pages';
+  component: 'manager' | 'webview' | 'scrapbox-pages';
   icon: string;
   url?: string;
   isLoading?: boolean;
@@ -232,13 +207,6 @@ interface Favorite {
   id: string;
   title: string;
   url: string;
-}
-
-interface ProjectPage {
-  id: string;
-  title: string;
-  updated: number;
-  descriptions: string[];
 }
 
 interface ScrapboxPage {
@@ -265,13 +233,6 @@ const tabs = ref<Tab[]>([
     closable: false
   },
   {
-    id: 'project-list',
-    title: 'プロジェクト一覧',
-    component: 'project-list',
-    icon: '📄',
-    closable: false
-  },
-  {
     id: 'scrapbox-pages',
     title: 'Scrapboxページ一覧',
     component: 'scrapbox-pages',
@@ -294,28 +255,6 @@ const favorites = ref<Favorite[]>([]);
 const newFavoriteUrl = ref("");
 
 // Project data
-const selectedProject = ref('help-jp');
-const projectPages = ref<ProjectPage[]>([
-  {
-    id: 'page1',
-    title: 'Scrapboxの使い方',
-    updated: Date.now() - 3600000,
-    descriptions: ['ページの作成、編集、リンクの方法']
-  },
-  {
-    id: 'page2',
-    title: 'ショートカットキー',
-    updated: Date.now() - 7200000,
-    descriptions: ['効率的な編集のためのキーボードショートカット']
-  },
-  {
-    id: 'page3',
-    title: 'ページのアイコン',
-    updated: Date.now() - 10800000,
-    descriptions: ['ページにアイコンを設定する方法']
-  }
-]);
-
 // Scrapbox pages state
 const scrapboxProject = ref('help-jp');
 const scrapboxPages = ref<ScrapboxPage[]>([]);
@@ -498,28 +437,6 @@ const openCustomProject = async () => {
   }
 };
 
-// Project page functions
-const openProjectPage = async (page: ProjectPage) => {
-  try {
-    const url = `https://scrapbox.io/${selectedProject.value}/${encodeURIComponent(page.title)}`;
-    
-    // Create WebView tab instead of separate window
-    await createWebViewTab(url, `${page.title} - ${selectedProject.value}`);
-    
-    addToRecent({
-      id: `webview-${tabCounter}`,
-      title: `${page.title} - ${selectedProject.value}`,
-      url,
-      lastAccessed: new Date()
-    });
-    
-    errorMessage.value = "";
-  } catch (error) {
-    console.error('Failed to open project page:', error);
-    errorMessage.value = `ページの起動に失敗しました: ${error}`;
-  }
-};
-
 const formatDate = (timestamp: number) => {
   const date = new Date(timestamp);
   const now = new Date();
@@ -582,24 +499,6 @@ const openScrapboxPage = async (page: ScrapboxPage) => {
 const changeScrapboxProject = () => {
   scrapboxSkip.value = 0;
   fetchScrapboxPages();
-};
-
-const refreshProjectPages = () => {
-  // Mock data refresh (in real app, this would be an API call)
-  const newPages = [
-    {
-      id: 'page' + Date.now(),
-      title: '新しいページ',
-      updated: Date.now(),
-      descriptions: ['リフレッシュされたページです']
-    },
-    ...projectPages.value
-  ];
-  projectPages.value = newPages.slice(0, 10); // Keep only first 10
-  errorMessage.value = "ページリストを更新しました";
-  setTimeout(() => {
-    errorMessage.value = "";
-  }, 2000);
 };
 
 // Recent windows functions
@@ -1045,90 +944,6 @@ onUnmounted(() => {
 .action-text {
   font-weight: 500;
   color: #333;
-}
-
-/* Project View */
-.project-view {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.project-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.project-header h2 {
-  margin: 0;
-  color: #333;
-}
-
-.project-controls {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.project-select {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.refresh-btn {
-  background: #007acc;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.refresh-btn:hover {
-  background: #005999;
-}
-
-.page-list {
-  display: grid;
-  gap: 12px;
-}
-
-.page-item {
-  padding: 16px;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  background: white;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.page-item:hover {
-  background: #f8f9fa;
-  border-color: #007acc;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.page-title {
-  font-weight: 500;
-  margin-bottom: 8px;
-  color: #333;
-}
-
-.page-description {
-  color: #666;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.page-time {
-  color: #999;
-  font-size: 12px;
 }
 
 /* Scrapbox Pages View */
