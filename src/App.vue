@@ -24,6 +24,13 @@
     <div class="tab-content">
       <!-- Manager Tab -->
       <div v-if="activeTab?.component === 'manager'" class="manager-view">
+        <div class="scrapbox-home-section">
+          <button @click="openScrapboxHome" class="scrapbox-home-btn">
+            <span class="btn-icon">📦</span>
+            <span class="btn-text">Scrapbox ホームを開く</span>
+          </button>
+        </div>
+        
         <div class="section">
           <h2>📋 最近のウィンドウ</h2>
           <div v-if="recentWindows.length === 0" class="empty-state">
@@ -62,23 +69,6 @@
           </div>
         </div>
 
-        <div class="section">
-          <h2>🚀 クイックアクション</h2>
-          <div class="quick-actions">
-            <button @click="openScrapboxHome" class="action-card">
-              <div class="action-icon">📦</div>
-              <div class="action-text">Scrapbox ホーム</div>
-            </button>
-            <button @click="openCustomProject" class="action-card">
-              <div class="action-icon">📝</div>
-              <div class="action-text">カスタムプロジェクト</div>
-            </button>
-            <button @click="refreshData" class="action-card">
-              <div class="action-icon">🔄</div>
-              <div class="action-text">データ更新</div>
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- Scrapbox Pages Tab -->
@@ -424,13 +414,6 @@ const openScrapboxProject = async (projectName: string) => {
   }
 };
 
-const openCustomProject = async () => {
-  const projectName = prompt("Scrapboxプロジェクト名を入力してください:");
-  if (projectName) {
-    await openScrapboxProject(projectName);
-  }
-};
-
 const formatDate = (timestamp: number) => {
   const date = new Date(timestamp);
   const now = new Date();
@@ -604,18 +587,6 @@ const formatTime = (date: Date) => {
   if (minutes < 60) return `${minutes}分前`;
   if (minutes < 1440) return `${Math.floor(minutes / 60)}時間前`;
   return date.toLocaleDateString();
-};
-
-const refreshData = () => {
-  try {
-    loadFromStorage();
-    errorMessage.value = "データを更新しました";
-    setTimeout(() => {
-      errorMessage.value = "";
-    }, 2000);
-  } catch (error) {
-    errorMessage.value = "データの更新に失敗しました";
-  }
 };
 
 // Data persistence
@@ -813,6 +784,46 @@ onUnmounted(() => {
   padding: 20px;
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.scrapbox-home-section {
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.scrapbox-home-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 32px;
+  background: linear-gradient(135deg, #007acc, #0056b3);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 122, 204, 0.3);
+}
+
+.scrapbox-home-btn:hover {
+  background: linear-gradient(135deg, #0056b3, #004085);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.4);
+}
+
+.scrapbox-home-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 122, 204, 0.3);
+}
+
+.btn-icon {
+  font-size: 20px;
+}
+
+.btn-text {
+  font-size: 16px;
 }
 
 .section {
