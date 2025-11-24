@@ -1,6 +1,6 @@
-# Scrapbox Browser Extension (SBE) - Tauri PoC
+# Cosense Desktop App PoC with Tauri 2.0
 
-A proof-of-concept desktop application built with Tauri, Vue 3, and Rust that provides an enhanced browsing experience for Scrapbox projects. This application demonstrates Tauri's capabilities for building lightweight, secure, and performant desktop applications.
+A proof-of-concept desktop application built with Tauri 2.0, Vue 3, and Rust that provides an enhanced browsing experience for Cosense (Scrapbox) projects. This application demonstrates Tauri's capabilities for building lightweight, secure, and performant desktop applications.
 
 ## ✨ Features
 
@@ -78,7 +78,7 @@ A proof-of-concept desktop application built with Tauri, Vue 3, and Rust that pr
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/sbe-tauri-poc.git
+git clone https://github.com/kondoumh/sbe-tauri-poc.git
 cd sbe-tauri-poc
 
 # Install dependencies
