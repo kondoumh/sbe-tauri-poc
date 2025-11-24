@@ -140,6 +140,12 @@ Automatic theme switching based on OS preferences using CSS media queries and CS
 ### Navigation Tracking
 Real-time monitoring of WebView navigation events to maintain an accurate history of visited pages.
 
+## 🔗 Related Projects
+
+This is an experimental Tauri-based trial implementation inspired by the original SBE (Scrapbox in Electron). The original Electron implementation with full features can be found here:
+
+- **[SBE - Scrapbox in Electron](https://github.com/kondoumh/sbe)** - The original desktop application built with Electron
+
 ## 🤝 Contributing
 
 This is a proof-of-concept project demonstrating Tauri's capabilities. Contributions and suggestions are welcome!
